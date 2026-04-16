@@ -1,6 +1,9 @@
 import os
+import io
+import time
 from dotenv import load_dotenv
 from pypdf import PdfReader
+from pptx import Presentation
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from google import genai
 from pinecone import Pinecone, ServerlessSpec
@@ -30,11 +33,20 @@ def create_index_if_not_exists():
     return pc.Index(index_name)
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    import io
     reader = PdfReader(io.BytesIO(file_bytes))
     text = ""
     for page in reader.pages:
         text += page.extract_text() or ""
+    return text
+
+def extract_text_from_pptx(file_bytes: bytes) -> str:
+    prs = Presentation(io.BytesIO(file_bytes))
+    text = ""
+    for slide_num, slide in enumerate(prs.slides, 1):
+        text += f"\n[Slide {slide_num}]\n"
+        for shape in slide.shapes:
+            if hasattr(shape, "text") and shape.text.strip():
+                text += shape.text.strip() + "\n"
     return text
 
 def chunk_text(text: str):
@@ -44,12 +56,20 @@ def chunk_text(text: str):
     )
     return splitter.split_text(text)
 
-def ingest_pdf(file_bytes: bytes, filename: str):
+def ingest_file(file_bytes: bytes, filename: str):
     index = create_index_if_not_exists()
-    text = extract_text_from_pdf(file_bytes)
+    ext = filename.lower().split(".")[-1]
+    if ext == "pdf":
+        text = extract_text_from_pdf(file_bytes)
+    elif ext in ["pptx", "ppt"]:
+        text = extract_text_from_pptx(file_bytes)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
     chunks = chunk_text(text)
     vectors = []
     for i, chunk in enumerate(chunks):
+        if i > 0 and i % 80 == 0:
+            time.sleep(60)
         embedding = get_embedding(chunk)
         vectors.append({
             "id": f"{filename}-chunk-{i}",

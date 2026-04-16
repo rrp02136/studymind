@@ -101,8 +101,8 @@ function App() {
         <p className="tagline">AI study assistant for your course materials</p>
         <div className="upload-section">
           <label className="upload-btn">
-            {uploading ? 'Uploading...' : 'Upload PDF'}
-            <input type="file" accept=".pdf" onChange={uploadFile} hidden />
+            {uploading ? 'Uploading...' : 'Upload PDF / PPTX'}
+            <input type="file" accept=".pdf,.pptx,.ppt" onChange={uploadFile} hidden />
           </label>
           {uploadedFiles.length > 0 && (
             <div className="file-list">

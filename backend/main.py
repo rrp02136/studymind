@@ -4,7 +4,7 @@ from eval import run_eval
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from ingest import ingest_pdf
+from ingest import ingest_file
 from query import get_answer
 from google import genai
 load_dotenv()
@@ -26,7 +26,7 @@ def root():
 @app.post("/ingest")
 async def ingest(file: UploadFile = File(...)):
     contents = await file.read()
-    num_chunks = ingest_pdf(contents, file.filename)
+    num_chunks = ingest_file(contents, file.filename)
     return {"message": f"Ingested {file.filename}", "chunks": num_chunks}
 
 @app.post("/query")

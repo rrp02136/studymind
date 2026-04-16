@@ -1,21 +1,23 @@
 import os
+import json
 import time
 from dotenv import load_dotenv
-from query import query_index, build_prompt, get_embedding
+from query import query_index, build_prompt
 from google import genai
-from pinecone import Pinecone
+from groq import Groq
 
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def get_answer_for_eval(question: str) -> dict:
     chunks = query_index(question)
     if not chunks:
         return {"answer": "", "contexts": [], "question": question}
     prompt = build_prompt(question, chunks)
-    response = client.models.generate_content(
-        model="models/gemini-2.0-flash-lite",
+    response = gemini_client.models.generate_content(
+        model="models/gemini-2.5-flash",
         contents=prompt
     )
     return {
@@ -24,54 +26,41 @@ def get_answer_for_eval(question: str) -> dict:
         "contexts": [c["text"] for c in chunks]
     }
 
-def score_faithfulness(answer: str, contexts: list) -> float:
+def score_answer(question: str, answer: str, contexts: list) -> dict:
     context_text = "\n".join(contexts)
-    prompt = f"""You are an evaluation system. Score how faithful the answer is to the given context.
-Faithfulness means every claim in the answer is supported by the context.
+    prompt = f"""You are an evaluation system. Score the following answer on two metrics.
 
 Context:
 {context_text}
 
-Answer:
-{answer}
-
-Return ONLY a number between 0 and 1 where:
-1.0 = every claim is fully supported by context
-0.0 = no claims are supported by context
-
-Return only the number, nothing else."""
-    response = client.models.generate_content(
-        model="models/gemini-2.0-flash-lite",
-        contents=prompt
-    )
-    try:
-        return round(float(response.text.strip()), 2)
-    except:
-        return 0.0
-
-def score_context_recall(question: str, contexts: list) -> float:
-    context_text = "\n".join(contexts)
-    prompt = f"""You are an evaluation system. Score how well the retrieved context covers what is needed to answer the question.
-
 Question:
 {question}
 
-Retrieved Context:
-{context_text}
+Answer:
+{answer}
 
-Return ONLY a number between 0 and 1 where:
-1.0 = context fully covers everything needed to answer the question
-0.0 = context is completely irrelevant to the question
+Return ONLY a JSON object with exactly this format, nothing else:
+{{"faithfulness": 0.0, "context_recall": 0.0}}
 
-Return only the number, nothing else."""
-    response = client.models.generate_content(
-        model="models/gemini-2.0-flash-lite",
-        contents=prompt
+Where:
+- faithfulness: 0-1 score of how well the answer is supported by the context
+- context_recall: 0-1 score of how well the context covers what is needed to answer the question"""
+
+    response = groq_client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
     )
     try:
-        return round(float(response.text.strip()), 2)
+        text = response.choices[0].message.content.strip()
+        text = text.replace("```json", "").replace("```", "").strip()
+        scores = json.loads(text)
+        return {
+            "faithfulness": round(float(scores.get("faithfulness", 0)), 2),
+            "context_recall": round(float(scores.get("context_recall", 0)), 2)
+        }
     except:
-        return 0.0
+        return {"faithfulness": 0.0, "context_recall": 0.0}
 
 def run_eval(questions: list) -> dict:
     results = []
@@ -81,17 +70,14 @@ def run_eval(questions: list) -> dict:
         data = get_answer_for_eval(question)
         if not data["contexts"]:
             continue
-        time.sleep(15)
-        faithfulness = score_faithfulness(data["answer"], data["contexts"])
-        time.sleep(15)
-        recall = score_context_recall(data["question"], data["contexts"])
-        total_faithfulness += faithfulness
-        total_recall += recall
+        scores = score_answer(data["question"], data["answer"], data["contexts"])
+        total_faithfulness += scores["faithfulness"]
+        total_recall += scores["context_recall"]
         results.append({
             "question": question,
             "answer": data["answer"],
-            "faithfulness": faithfulness,
-            "context_recall": recall
+            "faithfulness": scores["faithfulness"],
+            "context_recall": scores["context_recall"]
         })
     n = len(results)
     return {

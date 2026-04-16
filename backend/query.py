@@ -1,4 +1,5 @@
 import os
+import time
 from dotenv import load_dotenv
 from google import genai
 from pinecone import Pinecone
@@ -8,12 +9,19 @@ load_dotenv()
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
+embedding_cache = {}
+answer_cache = {}
+
 def get_embedding(text: str):
+    if text in embedding_cache:
+        return embedding_cache[text]
     result = client.models.embed_content(
         model="models/gemini-embedding-001",
         contents=text
     )
-    return result.embeddings[0].values
+    embedding = result.embeddings[0].values
+    embedding_cache[text] = embedding
+    return embedding
 
 def query_index(question: str, top_k: int = 5):
     index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
@@ -48,6 +56,8 @@ Question: {question}
 Answer:"""
 
 def get_answer(question: str):
+    if question in answer_cache:
+        return answer_cache[question]
     chunks = query_index(question)
     if not chunks:
         return {"answer": "No documents uploaded yet.", "sources": []}
@@ -56,7 +66,9 @@ def get_answer(question: str):
         model="models/gemini-2.5-flash",
         contents=prompt
     )
-    return {
+    result = {
         "answer": response.text,
         "sources": chunks
     }
+    answer_cache[question] = result
+    return result

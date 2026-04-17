@@ -1,12 +1,9 @@
 import os
 import json
-from eval import run_eval
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from ingest import ingest_file
-from query import get_answer
-from google import genai
+
 load_dotenv()
 
 app = FastAPI()
@@ -25,25 +22,19 @@ def root():
 
 @app.post("/ingest")
 async def ingest(file: UploadFile = File(...)):
+    from ingest import ingest_file
     contents = await file.read()
     num_chunks = ingest_file(contents, file.filename)
     return {"message": f"Ingested {file.filename}", "chunks": num_chunks}
 
 @app.post("/query")
 async def query(data: dict):
+    from query import get_answer
     question = data.get("question", "")
     if not question:
         return {"error": "No question provided"}
     result = get_answer(question)
     return result
-
-@app.post("/eval")
-async def eval_endpoint(data: dict):
-    questions = data.get("questions", [])
-    if not questions:
-        return {"error": "No questions provided"}
-    results = run_eval(questions)
-    return results
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -54,6 +45,7 @@ async def websocket_endpoint(websocket: WebSocket):
             payload = json.loads(data)
             question = payload.get("question", "")
             from query import query_index, build_prompt
+            from google import genai
             chunks = query_index(question)
             if not chunks:
                 await websocket.send_text(json.dumps({
@@ -68,9 +60,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 "content": chunks
             }))
             response = client.models.generate_content_stream(
-                 model="models/gemini-2.5-flash",
-                 contents=prompt
-                 )
+                model="models/gemini-2.5-flash",
+                contents=prompt
+            )
             for chunk in response:
                 if chunk.text:
                     await websocket.send_text(json.dumps({

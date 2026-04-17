@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
-const API_URL = 'http://127.0.0.1:8000';
-const WS_URL = 'ws://127.0.0.1:8000/ws';
+const API_URL = 'https://studymind-backend-pw4w.onrender.com';
+const WS_URL = 'wss://studymind-backend-pw4w.onrender.com/ws';
 
 function App() {
   const [messages, setMessages] = useState([]);
